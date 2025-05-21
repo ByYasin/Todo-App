@@ -1,0 +1,62 @@
+/* Kredi kartı animasyonları */
+.credit-card {
+  transform-style: preserve-3d;
+  transition: all 0.5s ease-in-out;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+}
+
+.credit-card:hover {
+  transform: translateY(-5px) rotateY(5deg);
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+}
+
+.card-filled {
+  animation: card-pulse 2s ease-in-out;
+}
+
+@keyframes card-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+  70% { box-shadow: 0 0 0 15px rgba(59, 130, 246, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+}
+
+/* Sayfa geçiş animasyonları */
+.animate-fade-scale-in {
+  animation: fade-scale-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center;
+}
+
+@keyframes fade-scale-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Markdown içerik için özel stiller */
+.markdown-content {
+  transition: all 0.3s ease-in-out;
+}
+
+/* Açıklama metni için truncation */
+.truncate-3-lines {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Smooth dark/light geçiş animasyonları */
+.transition-all {
+  transition-duration: 400ms;
+}
+
+/* Subscription page için özel stiller */
+.perspective-1000 {
+  perspective: 1000px;
+} 
