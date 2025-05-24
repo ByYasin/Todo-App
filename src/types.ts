@@ -63,6 +63,7 @@ export interface SubscriptionTier {
   price: number; // Aylık fiyat (TL)
   features: SubscriptionFeatures;
   recommended?: boolean;
+  duration?: number; // Gün cinsinden abonelik süresi
 }
 
 export interface AuthState {

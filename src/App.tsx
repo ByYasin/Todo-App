@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, createContext } from 'react'
+import { useState, useEffect, useMemo, createContext, useRef, useCallback } from 'react'
 import axios from 'axios'
 import './App.css'
 import DraggableTodoList from './components/DraggableTodoList'
@@ -12,13 +12,37 @@ import { Todo, Category, User, AuthState, SearchFilters, SubscriptionPlan } from
 import AuthModal from './components/Auth/AuthModal'
 import * as LocalStorage from './LocalStorage'
 import SubscriptionPage from './pages/SubscriptionPage'
-import { TodoProvider, TodoContextType } from './context/TodoContext'
+import SubscriptionHistoryPage from './pages/SubscriptionHistoryPage'
+import SubscriptionNotifications from './components/Subscription/SubscriptionNotifications'
+import { TodoProvider } from './context/TodoContext'
 import { SUBSCRIPTION_PLANS, getUserPlan, canUseFeature, getRemainingLimit, getUpgradeMessage } from './utils/subscription'
 
-// Backend API URL
+// Gradient Arka Plan Komponenti
+const GradientBackground = () => {
+  return (
+    <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10">
+      {/* Modernize edilmiş arka plan gradientleri - şık gri-mavi tonları */}
+      <div className="absolute w-full h-full bg-gradient-to-br from-slate-100/90 via-blue-50/85 to-slate-50/90 dark:from-[#111827]/80 dark:via-[#0f172a]/70 dark:to-[#0f1629]/75 opacity-95"></div>
+      
+      {/* Hareketli dekoratif daireler - şık tonlarla */}
+      <div className="absolute top-[5%] left-[8%] w-80 h-80 rounded-full bg-gradient-to-r from-slate-300/20 to-blue-300/20 dark:from-slate-600/10 dark:to-blue-600/10 blur-3xl animate-pulse-slow"></div>
+      <div className="absolute bottom-[8%] right-[5%] w-96 h-96 rounded-full bg-gradient-to-r from-sky-300/20 to-indigo-300/20 dark:from-sky-700/8 dark:to-indigo-700/8 blur-3xl animate-pulse-slow" style={{ animationDelay: '2s' }}></div>
+      <div className="absolute top-[35%] right-[12%] w-52 h-52 rounded-full bg-gradient-to-r from-blue-300/15 to-slate-300/20 dark:from-blue-600/5 dark:to-slate-600/5 blur-2xl animate-pulse-slow" style={{ animationDelay: '4s' }}></div>
+      <div className="absolute bottom-[25%] left-[10%] w-64 h-64 rounded-full bg-gradient-to-r from-indigo-300/20 to-slate-300/15 dark:from-indigo-700/5 dark:to-slate-700/5 blur-2xl animate-pulse-slow" style={{ animationDelay: '6s' }}></div>
+      
+      {/* İnce accent çizgi */}
+      <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-blue-400/30 dark:via-blue-500/15 to-transparent"></div>
+      
+      {/* Nokta deseni */}
+      <div className="absolute inset-0 opacity-[0.07] dark:opacity-[0.03] bg-[radial-gradient(#64748b_1px,transparent_1px)] dark:bg-[radial-gradient(#475569_1px,transparent_1px)] bg-[length:20px_20px]"></div>
+    </div>
+  );
+};
+
+
 const API_URL = 'http://localhost:5000/api'
 
-// Todo Context tipini tanımla
+
 export type TodoContextType = {
   todos: Todo[];
   categories: Category[];
@@ -41,25 +65,35 @@ export type TodoContextType = {
   handleSubscriptionChange: (plan: SubscriptionPlan) => void;
 }
 
-// Todo Context'i oluştur
+
 export const TodoContext = createContext<TodoContextType | null>(null);
 
-// Token yenileme fonksiyonu
+
 const refreshToken = async () => {
   try {
     const refreshToken = localStorage.getItem('refresh_token');
     if (!refreshToken) return null;
 
     const response = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
-    const { token, user } = response.data;
+    const { token, refreshToken: newRefreshToken, user } = response.data;
     
-    // Yeni token'ı kaydet
+    
     localStorage.setItem('auth_token', token);
+    
+    
+    if (newRefreshToken) {
+      localStorage.setItem('refresh_token', newRefreshToken);
+    }
+    
+    
+    localStorage.setItem('user', JSON.stringify(user));
+    
+    console.log('Yenilenen kullanıcı bilgileri:', user);
     
     return { token, user };
   } catch (error) {
     console.error('Token yenileme hatası:', error);
-    // Hata durumunda oturumu sonlandır
+    
     localStorage.removeItem('auth_token');
     localStorage.removeItem('refresh_token');
     localStorage.removeItem('user');
@@ -67,7 +101,7 @@ const refreshToken = async () => {
   }
 };
 
-// API durumunu kontrol eden fonksiyon
+
 const checkApiStatus = async () => {
   try {
     const res = await axios.get(`${API_URL}/health`, { timeout: 2000 })
@@ -78,13 +112,13 @@ const checkApiStatus = async () => {
   }
 }
 
-// API istekleri için axios instance
+
 const api = axios.create({
   baseURL: API_URL,
   timeout: 5000
 })
 
-// Axios interceptor ile her istekte token ekle
+
 api.interceptors.request.use(
   config => {
     const token = localStorage.getItem('auth_token')
@@ -171,7 +205,10 @@ function App() {
   const [sortMethod, setSortMethod] = useState<string>('default');
   const [showSubscriptionPage, setShowSubscriptionPage] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
-
+  const [showSubscriptionHistory, setShowSubscriptionHistory] = useState(false);
+  const [showStatsPanel, setShowStatsPanel] = useState(false);
+  const [showCategoriesPage, setShowCategoriesPage] = useState(false);
+  
   // Zorunlu giriş modalını kontrol etmek için state
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   
@@ -206,10 +243,10 @@ function App() {
       // Token geçerliliğini kontrol et
       checkTokenValidity();
       
-      // Periyodik token yenileme kontrolü (her 10 dakikada bir)
+      // Periyodik token yenileme kontrolü - optimize edilmiş sıklık
       const tokenCheckInterval = setInterval(() => {
         checkTokenValidity();
-      }, 10 * 60 * 1000);
+      }, 3 * 60 * 1000); // 3 dakikada bir - sunucu yükünü azaltmak için
       
       return () => clearInterval(tokenCheckInterval);
     } else {
@@ -219,6 +256,87 @@ function App() {
       }))
     }
   }, [])
+  
+  // Abonelik değişikliklerini otomatik olarak izleyen fonksiyon - optimize edilmiş
+  useEffect(() => {
+    if (!authState.isAuthenticated || !authState.user) return;
+    
+    // İlk yüklenmede verileri kontrol et
+    const checkCurrentSubscription = async () => {
+      await checkSubscriptionStatus(authState, setAuthState, setApiError, showSubscriptionPage);
+    };
+    
+    checkCurrentSubscription();
+    
+    // Periyodik kontrol için interval - sunucu yükünü azaltmak için
+    const subscriptionCheckInterval = setInterval(() => {
+      checkCurrentSubscription();
+    }, 5 * 60 * 1000); // 5 dakikada bir
+    
+    return () => clearInterval(subscriptionCheckInterval);
+  }, [authState, showSubscriptionPage]);
+
+  // Abonelik durumunu kontrol eden bağımsız fonksiyon
+  const checkSubscriptionStatus = async (
+    currentAuthState: AuthState, 
+    updateAuthState: React.Dispatch<React.SetStateAction<AuthState>>,
+    setErrorMessage: React.Dispatch<React.SetStateAction<string | null>>,
+    isSubscriptionPageOpen: boolean
+  ) => {
+    try {
+      // Sunucudan güncel kullanıcı bilgilerini al 
+      const response = await api.get('/auth/validate');
+      
+      if (response.data && response.data.user) {
+        const serverUser = response.data.user;
+        
+        // Hem planı hem de bitiş tarihini kontrol et ve her zaman sunucu verisini öncelikli tut
+        if (serverUser.subscription_plan !== currentAuthState.user?.subscription_plan ||
+            serverUser.subscription_expires !== currentAuthState.user?.subscription_expires) {
+          
+          console.log('Abonelik değişikliği tespit edildi:', {
+            eski: {
+              plan: currentAuthState.user?.subscription_plan,
+              expires: currentAuthState.user?.subscription_expires
+            },
+            yeni: {
+              plan: serverUser.subscription_plan,
+              expires: serverUser.subscription_expires
+            }
+          });
+          
+          // Kullanıcı bilgilerini güncelle
+          const updatedUser = {
+            ...currentAuthState.user,
+            subscription_plan: serverUser.subscription_plan as SubscriptionPlan,
+            subscription_expires: serverUser.subscription_expires
+          };
+          
+          // State'i güncelle
+          updateAuthState(prev => ({
+            ...prev,
+            user: updatedUser as User
+          }));
+          
+          // localStorage'ı güncelle
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          
+          // Kullanıcıyı bilgilendir - ekranda 3 saniye yerine 5 saniye göster
+          const planName = serverUser.subscription_plan && SUBSCRIPTION_PLANS[serverUser.subscription_plan as SubscriptionPlan]?.name || 'Bilinmeyen';
+          setErrorMessage(`Abonelik bilgileriniz güncellendi. Yeni plan: ${planName}`);
+          setTimeout(() => setErrorMessage(null), 5000);
+          
+          // Abonelik sayfası açıksa sayfayı yenile
+          if (isSubscriptionPageOpen) {
+            // Kısa bir gecikme sonrası sayfayı yenile
+            setTimeout(() => window.location.reload(), 1500);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Abonelik otomatik kontrol hatası:', error);
+    }
+  };
 
   // Bekleyen değişiklikleri kontrol et
   useEffect(() => {
@@ -264,8 +382,37 @@ function App() {
     if (!token) return false;
     
     try {
-      // Kullanıcı bilgilerini doğrula
-      await api.get('/auth/validate');
+      // Kullanıcı bilgilerini doğrula ve güncel durumu al
+      const validateResponse = await api.get('/auth/validate');
+      
+      // Eğer sunucudan dönen kullanıcı bilgileri varsa, güncel kullanıcı bilgilerini al
+      if (validateResponse && validateResponse.data && validateResponse.data.user) {
+        const currentUser = validateResponse.data.user;
+        
+        // localStorage ve state'deki kullanıcı bilgilerini güncelle
+        const localUserStr = localStorage.getItem('user');
+        if (localUserStr) {
+          const localUser = JSON.parse(localUserStr);
+          
+          // Sunucudan ve lokalden gelen bilgileri birleştir (sunucu bilgisi öncelikli)
+          const updatedUser = {
+            ...localUser,
+            ...currentUser
+          };
+          
+          // Güncel kullanıcı bilgilerini kaydet
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          
+          // AuthState güncelle
+          setAuthState(prev => ({
+            ...prev,
+            user: updatedUser
+          }));
+          
+          console.log('Kullanıcı bilgileri güncellendi:', updatedUser);
+        }
+      }
+      
       return true;
     } catch (error) {
       console.log('Token geçersiz, yenileniyor...');
@@ -308,7 +455,7 @@ function App() {
     fetchData()
   }
 
-  // Offline değişiklikleri senkronize et
+  // Çevrimdışı değişiklikleri senkronize et
   const syncOfflineChanges = async () => {
     if (!apiConnected) {
       setApiError('Sunucu bağlantısı kurulamadı, değişiklikler yerel olarak saklandı');
@@ -316,6 +463,9 @@ function App() {
     }
     
     try {
+      // Senkronizasyon başladı bildirimi
+      setApiError('Değişiklikler senkronize ediliyor...');
+      
       await LocalStorage.syncOfflineChanges(api);
       setPendingChanges(LocalStorage.getPendingChanges().length);
       
@@ -329,6 +479,7 @@ function App() {
     } catch (error) {
       console.error('Değişiklikleri senkronize etme hatası:', error);
       setApiError('Değişiklikler senkronize edilemedi, daha sonra tekrar deneyin');
+      setTimeout(() => setApiError(null), 3000);
     }
   };
 
@@ -345,6 +496,7 @@ function App() {
         syncOfflineChanges();
       } else if (!isOfflineMode && !isConnected) {
         setApiError('İnternet bağlantısı kesildi, çevrimdışı modda çalışılıyor');
+        setTimeout(() => setApiError(null), 5000);
       }
       
       setApiConnected(isConnected);
@@ -357,6 +509,74 @@ function App() {
       return false;
     }
   };
+
+  // Tarayıcının çevrimiçi/çevrimdışı durumunu dinle
+  useEffect(() => {
+    // İlk yükleme kontrolü
+    checkApiConnection();
+    
+    // Çevrimiçi/Çevrimdışı durumunu dinle
+    const handleOnline = () => {
+      console.log("Ağ bağlantısı yeniden sağlandı");
+      // Kısa bir gecikme ile sunucu durumunu kontrol et
+      setTimeout(async () => {
+        const isConnected = await checkApiConnection();
+        if (isConnected) {
+          console.log("API bağlantısı sağlandı, değişiklikler senkronize ediliyor");
+          syncOfflineChanges();
+        }
+      }, 1000);
+    };
+    
+    const handleOffline = () => {
+      console.log("Ağ bağlantısı kesildi");
+      setApiConnected(false);
+      setIsOfflineMode(true);
+      setApiError('İnternet bağlantısı kesildi, çevrimdışı modda çalışılıyor');
+      setTimeout(() => setApiError(null), 5000);
+    };
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    // Düzenli aralıklarla sunucu durumunu kontrol et (yalnızca sayfada aktif olduğunda)
+    let apiCheckInterval: number | null = null;
+    
+    // API durumunu otomatik olarak kontrol etmek için akıllı mekanizma
+    // Sadece çevrimdışı modda daha sık kontrol et, çevrimiçiyse daha seyrek
+    const checkFrequency = isOfflineMode ? 30000 : 120000; // Çevrimdışı: 30s, Çevrimiçi: 2dk
+    
+    apiCheckInterval = window.setInterval(async () => {
+      // Sayfa görünür durumdaysa kontrol et
+      if (!document.hidden) {
+        const isConnected = await checkApiConnection();
+        
+        // Bağlantı varsa ve bekleyen değişiklikler varsa senkronize et
+        if (isConnected && LocalStorage.getPendingChanges().length > 0) {
+          syncOfflineChanges();
+        }
+      }
+    }, checkFrequency);
+    
+    // visibility değişimini dinle - sayfa arka plandan geri geldiğinde durumu kontrol et
+    const handleVisibilityChange = async () => {
+      if (!document.hidden) {
+        const isConnected = await checkApiConnection();
+        if (isConnected && LocalStorage.getPendingChanges().length > 0) {
+          syncOfflineChanges();
+        }
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (apiCheckInterval) clearInterval(apiCheckInterval);
+    };
+  }, [isOfflineMode, syncOfflineChanges, checkApiConnection, setApiConnected, setIsOfflineMode, setApiError]);
 
   // Fetch todos and categories on component mount
   useEffect(() => {
@@ -530,7 +750,8 @@ function App() {
       if (apiConnected) {
         try {
           const response = await api.put(`/users/${authState.user.id}/subscription`, {
-            plan: plan
+            plan: plan,
+            duration: 30 // Her plan için sabit 30 günlük süre belirt
           });
           
           if (response && response.data && response.data.user) {
@@ -550,7 +771,6 @@ function App() {
             setApiError(`${SUBSCRIPTION_PLANS[plan].name} planına geçiş başarılı! Yeni özellikler aktif.`);
             
             // Ana sayfaya dön (abonelik sayfasını kapat)
-            // Daha uzun bir gecikme ile abonelik sayfasını kapat
             setTimeout(() => {
               setShowSubscriptionPage(false);
               setIsUpgradeModalOpen(false);
@@ -571,13 +791,18 @@ function App() {
       }
       
       // API bağlantısı yoksa veya API hatası varsa, yerel olarak güncelle
+      // Tüm planlar için süreyi 30 gün olarak standardize ediyoruz
+      const durationInDays = 30; // Tüm planlar için sabit 30 gün olarak ayarla (Enterprise de dahil)
+      
+      // Bitiş tarihini hesapla - tam 30 gün sonrası
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + durationInDays);
+      
+      // Kullanıcı bilgisini güncelle
       const updatedUser: User = {
         ...authState.user,
         subscription_plan: plan,
-        // Bugünden 30 gün sonra
-        subscription_expires: new Date(
-          new Date().setDate(new Date().getDate() + 30)
-        ).toISOString(),
+        subscription_expires: expiryDate.toISOString(),
       };
       
       // Kullanıcı bilgilerini localStorage'a kaydet
@@ -593,7 +818,6 @@ function App() {
       setApiError(`${SUBSCRIPTION_PLANS[plan].name} planına geçiş başarılı! Yeni özellikler aktif.`);
       
       // Ana sayfaya dön (abonelik sayfasını kapat)
-      // Daha uzun bir gecikme ile abonelik sayfasını kapat
       setTimeout(() => {
         setShowSubscriptionPage(false);
         setIsUpgradeModalOpen(false);
@@ -647,10 +871,52 @@ function App() {
     }
   };
   
+  // Abonelik geçmişi sayfasını aç/kapat
+  const toggleSubscriptionHistory = () => {
+    setShowSubscriptionHistory(!showSubscriptionHistory);
+    // Diğer sayfaları kapat
+    if (!showSubscriptionHistory) {
+      setShowSubscriptionPage(false);
+      setShowStatsPanel(false);
+      setShowCategoriesPage(false);
+    }
+  };
+  
   // Kullanıcı şu anda etkin olan abonelik planı
   const subscriptionPlan = useMemo(() => {
+    // Kullanıcının subscription_plan bilgisini doğrudan kullanır ve localStorage'dan taze bilgiyi alır
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      try {
+        const parsedUser = JSON.parse(storedUser) as User;
+        if (parsedUser && parsedUser.subscription_plan) {
+          // Hem localStorage hem state içindeki kullanıcı bilgileri varsa ve farklıysa, state'i güncelle
+          if (authState.user && authState.user.subscription_plan !== parsedUser.subscription_plan) {
+            console.log("Abonelik planı farklılığı tespit edildi. State güncelleniyor.");
+            console.log("State'deki plan:", authState.user.subscription_plan);
+            console.log("localStorage'daki plan:", parsedUser.subscription_plan);
+            
+            // authState içindeki user'ı localStorage'daki bilgilerle güncelle
+            setAuthState(prev => ({
+              ...prev,
+              user: {
+                ...prev.user!,
+                subscription_plan: parsedUser.subscription_plan,
+                subscription_expires: parsedUser.subscription_expires
+              } as User
+            }));
+          }
+          
+          // localStorage'dan alınan plan bilgisini döndür
+          return parsedUser.subscription_plan;
+        }
+      } catch (e) {
+        console.error('Kullanıcı bilgisi çözümlenirken hata oluştu:', e);
+      }
+    }
+    // Eğer localStorage'dan alınamazsa state'ten almaya çalışır
     return getUserPlan(authState.user);
-  }, [authState.user]);
+  }, [authState.user, authState.user?.subscription_plan]);
 
   // Görev ekleme fonksiyonu - abonelik sınırlamaları ile güncellendi
   const addTodo = async (todo: Todo) => {
@@ -1014,37 +1280,68 @@ function App() {
 
   // Senkronizasyon durumu bildirimi
   const SyncStatus = () => {
-    if (!isOfflineMode && pendingChanges === 0) return null;
+    if (!isOfflineMode && pendingChanges === 0 && 
+        !(authState.isAuthenticated && subscriptionPlan !== 'premium' && 
+        authState.user?.subscription_plan === 'premium')) return null;
 
   return (
-      <div className={`fixed bottom-4 right-4 px-4 py-2 rounded-lg shadow-lg ${
-        isOfflineMode ? 'bg-red-500 dark:bg-red-700' : 'bg-yellow-500 dark:bg-yellow-700'
-      } text-white z-50 flex items-center gap-2`}>
-        {isOfflineMode ? (
-          <>
-            <span className="w-3 h-3 bg-white rounded-full animate-pulse"></span>
-            Çevrimdışı mod
-          </>
-        ) : pendingChanges > 0 ? (
-          <>
-            <span className="w-3 h-3 bg-white rounded-full animate-pulse"></span>
-            {pendingChanges} değişiklik senkronize edilecek
-            <button 
-              onClick={syncOfflineChanges} 
-              className="ml-2 bg-white text-yellow-700 px-2 py-1 rounded text-xs"
-            >
-              Şimdi Senkronize Et
-            </button>
-          </>
-        ) : null}
+      <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-50">
+        {/* Abonelik düzeltme butonu */}
+        {authState.isAuthenticated && subscriptionPlan !== 'premium' && 
+          authState.user?.subscription_plan === 'premium' && (
+          <button
+            onClick={async () => {
+              try {
+                // Kullanıcı bilgisini yenile
+                await refreshToken();
+                
+                // Sayfayı yenile
+                window.location.reload();
+                
+                setApiError('Abonelik bilgisi güncellendi');
+                setTimeout(() => setApiError(null), 3000);
+              } catch (error) {
+                console.error('Abonelik düzeltme hatası:', error);
+                setApiError('Abonelik bilgisi güncellenirken hata oluştu');
+                setTimeout(() => setApiError(null), 3000);
+              }
+            }}
+            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-full shadow-lg flex items-center space-x-2"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span>Abonelik Bilgisini Güncelle</span>
+          </button>
+        )}
+        
+        {/* Senkronizasyon durumu */}
+        {(isOfflineMode || pendingChanges > 0) && (
+          <div className={`px-4 py-2 rounded-lg shadow-lg ${
+            isOfflineMode ? 'bg-red-500 dark:bg-red-700' : 'bg-yellow-500 dark:bg-yellow-700'
+          } text-white flex items-center gap-2`}>
+            {isOfflineMode ? (
+              <>
+                <span className="w-3 h-3 bg-white rounded-full animate-pulse"></span>
+                Çevrimdışı mod
+              </>
+            ) : pendingChanges > 0 ? (
+              <>
+                <span className="w-3 h-3 bg-white rounded-full animate-pulse"></span>
+                {pendingChanges} değişiklik senkronize edilecek
+                <button
+                  onClick={syncOfflineChanges}
+                  className="ml-2 bg-white text-yellow-700 px-2 py-1 rounded text-xs"
+                >
+                  Şimdi Senkronize Et
+                </button>
+              </>
+            ) : null}
+      </div>
+        )}
       </div>
     );
   };
-
-  // Markdown desteği kontrolü - zengin metin formatı kullanılabilir mi?
-  const canUseMarkdown = useMemo(() => {
-    return canUserUseFeature('has_markdown_support');
-  }, [authState.user]);
 
   // Context değeri
   const todoContextValue = useMemo((): TodoContextType => ({
@@ -1079,24 +1376,28 @@ function App() {
 
   return (
     <TodoProvider value={todoContextValue}>
-      <div className={`App min-h-screen flex flex-col ${isDarkMode ? 'dark bg-[#1e2837]' : 'bg-gray-50'}`}>
-        <Header 
-          isAuthenticated={authState.isAuthenticated}
-          user={authState.user}
-          onLogout={handleLogout}
-          onLogin={() => setIsAuthModalOpen(true)}
+      <div className={`App min-h-screen flex flex-col relative ${isDarkMode ? 'dark' : ''}`}>
+        {/* Tüm sayfalarda görünecek gradient arka plan */}
+        <GradientBackground />
+        
+        <Header
           darkMode={isDarkMode}
           toggleDarkMode={toggleDarkMode}
-          onShowStats={() => setShowStats(!showStats)}
-          onShowCategories={() => setShowCategories(!showCategories)}
-          syncOfflineChanges={syncOfflineChanges}
+          isAuthenticated={authState.isAuthenticated}
+          user={authState.user}
           pendingChanges={pendingChanges}
+          syncOfflineChanges={syncOfflineChanges}
+          onShowStats={() => setShowStatsPanel(true)}
+          onShowCategories={() => setShowCategoriesPage(true)}
           apiConnected={apiConnected}
+          onLogin={() => setIsAuthModalOpen(true)}
+          onLogout={handleLogout}
           onToggleSubscription={toggleSubscriptionPage}
+          onShowSubscriptionHistory={toggleSubscriptionHistory}
           subscriptionPlan={subscriptionPlan}
         />
 
-        <main className="flex-grow container mx-auto px-4 py-6">
+        <main className="px-4 mx-auto container pb-8">
           {/* Zorunlu Giriş Modalı */}
           {isAuthModalOpen ? (
             <AuthModal
@@ -1123,7 +1424,7 @@ function App() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
         </button>
-                </div>
+      </div>
                 
                 <div className="mb-6">
                   <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/60 rounded-lg p-4 text-amber-800 dark:text-amber-300 mb-4">
@@ -1141,8 +1442,11 @@ function App() {
                       <div className="text-gray-500 dark:text-gray-400 text-sm mt-1">{SUBSCRIPTION_PLANS[subscriptionPlan].price.toFixed(2)} ₺/ay</div>
                     </div>
                     
-                    <div className="bg-gradient-to-r from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 p-3 rounded-lg border border-purple-200 dark:border-purple-800/60 shadow-sm">
-                      <div className="font-medium text-purple-800 dark:text-purple-300 mb-1">Önerilen</div>
+                    <div className="bg-gradient-to-r from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 p-3 rounded-lg border border-purple-200 dark:border-purple-800/60 shadow-sm relative">
+                      <div className="absolute -right-1 top-1 bg-gradient-to-r from-purple-600 to-purple-500 px-2 py-0.5 text-xs text-white rounded-md shadow-sm">
+                        Önerilen
+                      </div>
+                      <div className="font-medium text-purple-800 dark:text-purple-300 mb-1 mt-6">Önerilen Plan</div>
                       <div className="text-xl font-bold text-purple-600 dark:text-purple-400">{SUBSCRIPTION_PLANS.premium.name}</div>
                       <div className="text-purple-500 dark:text-purple-400 text-sm mt-1">{SUBSCRIPTION_PLANS.premium.price.toFixed(2)} ₺/ay</div>
                     </div>
@@ -1180,13 +1484,63 @@ function App() {
                 </div>
               )}
               
-              {/* Abonelik sayfası veya görevler sayfası */}
+              {/* Farklı sayfalar arasında geçiş yap */}
               {showSubscriptionPage ? (
                 <div className="mt-4 animate-fade-in">
                   <SubscriptionPage 
                     user={authState.user}
                     onSubscriptionChange={handleSubscriptionChange}
                   />
+                </div>
+              ) : showStatsPanel ? (
+                <div className="mt-4 animate-fade-in">
+                  <div className="bg-white dark:bg-[#1c2732] rounded-xl p-5 border border-gray-200 dark:border-[#2d3741] shadow-lg">
+                    <div className="flex justify-between items-center mb-4">
+                      <h2 className="text-xl font-bold text-gray-800 dark:text-white">Detaylı İstatistikler</h2>
+                      <button 
+                        onClick={() => setShowStatsPanel(false)}
+                        className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 transition-colors"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                    <StatsPanel 
+                      todos={todos} 
+                      categories={categories}
+                      user={authState.user}
+                    />
+                  </div>
+                </div>
+              ) : showCategoriesPage ? (
+                <div className="mt-4 animate-fade-in">
+                  <div className="bg-white dark:bg-[#1c2732] rounded-xl p-5 border border-gray-200 dark:border-[#2d3741] shadow-lg">
+                    <div className="flex justify-between items-center mb-4">
+                      <h2 className="text-xl font-bold text-gray-800 dark:text-white">Kategori Yönetimi</h2>
+                      <button 
+                        onClick={() => setShowCategoriesPage(false)}
+                        className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 transition-colors"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                    <CategoryManagement 
+                      categories={categories} 
+                      onCategoriesUpdate={(updatedCategories: Category[]) => {
+                        api.put('/categories', updatedCategories)
+                          .then(() => {
+                            updateCategories(updatedCategories);
+                          })
+                          .catch(error => {
+                            console.error('Kategoriler güncellenirken hata:', error);
+                          });
+                      }}
+                      onClose={() => setShowCategoriesPage(false)}
+                    />
+                  </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -1240,6 +1594,32 @@ function App() {
                         {showStats ? 'İstatistikleri Gizle' : 'İstatistikleri Göster'}
                       </button>
                     </div>
+                    
+                    {/* Yeni Görev Ekle Butonu - Sidebar'da yatay sabitlenmiş */}
+                    <div className="fixed bottom-5 left-4 right-4 lg:relative lg:bottom-auto lg:left-auto lg:right-auto lg:mt-6 z-20">
+                      <div className="p-1.5 rounded-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm shadow-xl">
+                        <button
+                          onClick={() => {
+                            const remainingLimit = getRemainingTodoLimit();
+                            // Enterprise planında sınırsız görev oluşturma hakkı (-1 değeri)
+                            if (remainingLimit === 0) {
+                              openUpgradeModal();
+                              return;
+                            }
+                            setCurrentTodo(null);
+                            setIsModalOpen(true);
+                          }}
+                          className="w-full flex items-center justify-center py-4 px-5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold shadow-lg hover:shadow-blue-500/40 transition-all duration-300 transform hover:-translate-y-1 border border-white/10 dark:border-white/5"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-200" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                            </svg>
+                            <span className="tracking-wide">Yeni Görev Ekle</span>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
                   </div>
   
                   {/* Ana içerik - Görevler */}
@@ -1287,59 +1667,20 @@ function App() {
                     </div>
   
                     <div className="mt-4 flex justify-center">
-                      <button
-                        onClick={() => {
-                          const remainingLimit = getRemainingTodoLimit();
-                          // Enterprise planında sınırsız görev oluşturma hakkı (-1 değeri)
-                          if (remainingLimit === 0) {
-                            openUpgradeModal();
-                            return;
-                          }
-                          setCurrentTodo(null);
-                          setIsModalOpen(true);
-                        }}
-                        className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white px-6 py-2 rounded-full shadow-md hover:shadow-lg transition transform hover:-translate-y-1 flex items-center font-medium"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
-                        </svg>
-                        Yeni Görev Ekle
-                      </button>
+                      {/* Yeni Görev Ekle butonu buradan kaldırıldı */}
                     </div>
   
                     {/* Modallar */}
                     {showCategories && (
                       <CategoryManagement 
                         categories={categories} 
-                        onAddCategory={(category) => {
-                          api.post('/categories', category)
-                            .then(response => {
-                              setCategories([...categories, response.data]);
-                            })
-                            .catch(error => {
-                              console.error('Kategori eklenirken hata:', error);
-                            });
-                        }}
-                        onUpdateCategory={(updatedCategory) => {
-                          api.put(`/categories/${updatedCategory.id}`, updatedCategory)
+                        onCategoriesUpdate={(updatedCategories: Category[]) => {
+                          api.put('/categories', updatedCategories)
                             .then(() => {
-                              const updatedCategories = categories.map(c => 
-                                c.id === updatedCategory.id ? updatedCategory : c
-                              );
                               updateCategories(updatedCategories);
                             })
                             .catch(error => {
-                              console.error('Kategori güncellenirken hata:', error);
-                            });
-                        }}
-                        onDeleteCategory={(id) => {
-                          api.delete(`/categories/${id}`)
-                            .then(() => {
-                              const newCategories = categories.filter(c => c.id !== id);
-                              updateCategories(newCategories);
-                            })
-                            .catch(error => {
-                              console.error('Kategori silinirken hata:', error);
+                              console.error('Kategoriler güncellenirken hata:', error);
                             });
                         }}
                         onClose={() => setShowCategories(false)}
@@ -1371,161 +1712,233 @@ function App() {
           ) : (
             /* Giriş yapmamış kullanıcılar için görüntülenecek içerik */
             <div className="relative flex flex-col items-center min-h-[80vh] py-12 px-4 overflow-hidden">
-              {/* Dekoratif arka plan elementleri */}
-              <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10">
-                {/* Arka plan deseni */}
-                <div className="absolute w-full h-full bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-[#1e2e41]/30 dark:to-[#202d40]/30 opacity-70"></div>
-                {/* Dekoratif daireler */}
-                <div className="absolute top-[10%] left-[5%] w-64 h-64 rounded-full bg-gradient-to-r from-blue-300/20 to-purple-300/20 dark:from-blue-500/15 dark:to-purple-500/15 blur-3xl"></div>
-                <div className="absolute bottom-[10%] right-[5%] w-72 h-72 rounded-full bg-gradient-to-r from-green-300/20 to-cyan-300/20 dark:from-green-500/15 dark:to-cyan-500/15 blur-3xl"></div>
-                <div className="absolute top-[40%] right-[15%] w-40 h-40 rounded-full bg-gradient-to-r from-amber-300/20 to-pink-300/20 dark:from-amber-500/15 dark:to-pink-500/15 blur-2xl"></div>
-                <div className="absolute bottom-[30%] left-[15%] w-56 h-56 rounded-full bg-gradient-to-r from-purple-300/20 to-indigo-300/20 dark:from-purple-500/15 dark:to-indigo-500/15 blur-3xl"></div>
-                {/* Nokta deseni */}
-                <div className="absolute inset-0 opacity-10 dark:opacity-10 bg-[radial-gradient(#3b82f6_1px,transparent_1px)] bg-[length:24px_24px]"></div>
-              </div>
-
               {/* Ana içerik */}
               <div className="relative z-10 max-w-7xl mx-auto w-full">
                 <div className="text-center mb-12 animate-fade-in">
-                  <div className="inline-block mb-4 p-2 bg-white dark:bg-[#2a3544]/90 rounded-2xl shadow-xl">
-                    <div className="bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-xl p-3 transform transition-transform hover:scale-105">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <div className="inline-block mb-6 p-3 bg-white/80 dark:bg-[#2a3544]/90 rounded-2xl shadow-xl transform transition-all duration-500 hover:scale-105">
+                    <div className="bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-xl p-4 transform rotate-3 hover:rotate-0 transition-transform duration-300">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-20 w-20 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
                       </svg>
                     </div>
                   </div>
                   
-                  <h1 className="text-4xl md:text-5xl font-extrabold text-gray-800 dark:text-white mb-4 animate-fade-in">
-                    <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400">
+                  <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-gray-800 dark:text-white mb-6 animate-fade-in leading-tight">
+                    <span className="inline-block bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400">
                       Todo Uygulamasına
-                    </span> Hoş Geldiniz
+                    </span>
+                    <br className="md:hidden" /> Hoş Geldiniz
                   </h1>
                   
-                  <p className="text-gray-600 dark:text-gray-300 text-lg md:text-xl mb-8 max-w-3xl mx-auto animate-fade-in">
+                  <p className="text-gray-600 dark:text-gray-300 text-lg md:text-xl mb-10 max-w-3xl mx-auto animate-fade-in leading-relaxed">
                     Modern ve kullanışlı arayüzü ile görevlerinizi kolayca yönetin, kategorilere ayırın ve her zaman organize kalın.
                   </p>
                 </div>
                 
                 {/* Özellik Kartları */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 lg:gap-8 mb-12 w-full px-4">
-                  {/* Özellik Kartı 1 */}
-                  <div className="bg-white/80 dark:bg-[#2a3544]/90 backdrop-blur-sm rounded-2xl p-6 shadow-lg dark:shadow-black/10 border border-gray-100 dark:border-[#384352]/50 hover:shadow-xl transition-all duration-300 hover:translate-y-[-8px] hover:border-blue-200 dark:hover:border-blue-500/30 group animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center mb-6 shadow-md dark:shadow-blue-500/20 group-hover:scale-110 transition-all duration-500">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                      </svg>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 md:gap-6 lg:gap-8 mb-16 w-full max-w-7xl mx-auto">
+                  {/* Özellik Kartı 1: Görev Yönetimi */}
+                  <div className="relative group overflow-hidden bg-white/90 dark:bg-[#1e293b]/90 backdrop-blur-sm rounded-2xl shadow-lg dark:shadow-slate-900/10 border border-slate-200/60 dark:border-slate-700/50 hover:shadow-xl dark:hover:shadow-slate-900/20 transition-all duration-300 hover:translate-y-[-8px] animate-fade-in-up p-0 flex flex-col" style={{ animationDelay: '0.1s' }}>
+                    {/* Kart Başlık Alanı ve İkon - Ortalandı */}
+                    <div className="p-6 pb-3 flex flex-col items-center text-center">
+                      <div className="relative">
+                        <div className="absolute -top-2 -left-1/2 w-24 h-24 rounded-full bg-blue-500/10 dark:bg-blue-500/5 blur-2xl transform group-hover:scale-150 group-hover:opacity-100 transition-all duration-700"></div>
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center mb-5 shadow-md shadow-blue-500/20 dark:shadow-blue-500/10 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 relative mx-auto">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                          </svg>
+                        </div>
+                        
+                        <div className="relative">
+                          <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors text-center">Görev Yönetimi</h3>
+                          <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-0 h-0.5 bg-blue-500 dark:bg-blue-400 group-hover:w-20 transition-all duration-300 mx-auto"></span>
+                        </div>
+                      </div>
                     </div>
-                    <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-3 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">Görev Yönetimi</h3>
-                    <p className="text-gray-600 dark:text-gray-300">
-                      Yapılacak görevlerinizi ekleyin, düzenleyin, önceliklendirebilirsin ve tamamlandığında işaretleyin.
-                    </p>
-                    <ul className="mt-4 space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                      <li className="flex items-center">
-                        <svg className="h-4 w-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                        </svg>
-                        Sürükle-bırak ile kolay düzenleme
-                      </li>
-                      <li className="flex items-center">
-                        <svg className="h-4 w-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                        </svg>
-                        Yüksek, orta, düşük önceliklendirme
-                      </li>
-                    </ul>
+
+                    {/* Kart İçeriği - Ortalandı */}
+                    <div className="p-6 pt-2 flex-grow flex flex-col items-center text-center">
+                      <p className="text-gray-600 dark:text-gray-300 text-[15px] mb-4">
+                        Yapılacak görevlerinizi ekleyin, düzenleyin, önceliklendirebilirsin ve tamamlandığında işaretleyin.
+                      </p>
+                      <ul className="mt-2 space-y-3 text-sm w-full">
+                        <li className="flex items-center text-gray-600 dark:text-gray-400 justify-center">
+                          <div className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-500 dark:text-blue-400 mr-3">
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                          </div>
+                          <span>Sürükle-bırak ile kolay düzenleme</span>
+                        </li>
+                        <li className="flex items-center text-gray-600 dark:text-gray-400 justify-center">
+                          <div className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-500 dark:text-blue-400 mr-3">
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                          </div>
+                          <span>Yüksek, orta, düşük önceliklendirme</span>
+                        </li>
+                      </ul>
+                    </div>
+                    
+                    {/* Kart Alt Kısmı - Vurgu Çizgisi */}
+                    <div className="h-1.5 w-full bg-gradient-to-r from-blue-500 to-blue-600 transform scale-x-0 group-hover:scale-x-100 transition-transform origin-center duration-500 mt-auto"></div>
                   </div>
                   
-                  {/* Özellik Kartı 2 */}
-                  <div className="bg-white/80 dark:bg-[#2a3544]/90 backdrop-blur-sm rounded-2xl p-6 shadow-lg dark:shadow-black/10 border border-gray-100 dark:border-[#384352]/50 hover:shadow-xl transition-all duration-300 hover:translate-y-[-8px] hover:border-green-200 dark:hover:border-green-500/30 group animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center mb-6 shadow-md dark:shadow-green-600/20 group-hover:scale-110 transition-all duration-500">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                      </svg>
+                  {/* Özellik Kartı 2: Kategori Sistemi */}
+                  <div className="relative group overflow-hidden bg-white/90 dark:bg-[#1e293b]/90 backdrop-blur-sm rounded-2xl shadow-lg dark:shadow-slate-900/10 border border-slate-200/60 dark:border-slate-700/50 hover:shadow-xl dark:hover:shadow-slate-900/20 transition-all duration-300 hover:translate-y-[-8px] animate-fade-in-up p-0 flex flex-col" style={{ animationDelay: '0.2s' }}>
+                    {/* Kart Başlık Alanı ve İkon - Ortalandı */}
+                    <div className="p-6 pb-3 flex flex-col items-center text-center">
+                      <div className="relative">
+                        <div className="absolute -top-2 -left-1/2 w-24 h-24 rounded-full bg-emerald-500/10 dark:bg-emerald-500/5 blur-2xl transform group-hover:scale-150 group-hover:opacity-100 transition-all duration-700"></div>
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center mb-5 shadow-md shadow-emerald-500/20 dark:shadow-emerald-500/10 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 relative mx-auto">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4zM3 20a6 6 0 0112 0v1H3v-1z" />
+                          </svg>
+                        </div>
+                        
+                        <div className="relative">
+                          <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors text-center">Kategori Sistemi</h3>
+                          <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-0 h-0.5 bg-emerald-500 dark:bg-emerald-400 group-hover:w-20 transition-all duration-300 mx-auto"></span>
+                        </div>
+                      </div>
                     </div>
-                    <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-3 group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors">Kategori Sistemi</h3>
-                    <p className="text-gray-600 dark:text-gray-300">
-                      Görevlerinizi kategorilere ayırarak daha düzenli bir çalışma ortamı oluşturun ve odaklanın.
-                    </p>
-                    <ul className="mt-4 space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                      <li className="flex items-center">
-                        <svg className="h-4 w-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                        </svg>
-                        Özel renkli kategoriler oluşturma
-                      </li>
-                      <li className="flex items-center">
-                        <svg className="h-4 w-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                        </svg>
-                        Kategori bazlı filtreleme ve arama
-                      </li>
-                    </ul>
+
+                    {/* Kart İçeriği - Ortalandı */}
+                    <div className="p-6 pt-2 flex-grow flex flex-col items-center text-center">
+                      <p className="text-gray-600 dark:text-gray-300 text-[15px] mb-4">
+                        Görevlerinizi kategorilere ayırarak daha düzenli bir çalışma ortamı oluşturun ve odaklanın.
+                      </p>
+                      <ul className="mt-2 space-y-3 text-sm w-full">
+                        <li className="flex items-center text-gray-600 dark:text-gray-400 justify-center">
+                          <div className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-500 dark:text-emerald-400 mr-3">
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                          </div>
+                          <span>Özel renkli kategoriler oluşturma</span>
+                        </li>
+                        <li className="flex items-center text-gray-600 dark:text-gray-400 justify-center">
+                          <div className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-500 dark:text-emerald-400 mr-3">
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                          </div>
+                          <span>Kategori bazlı filtreleme ve arama</span>
+                        </li>
+                      </ul>
+                    </div>
+                    
+                    {/* Kart Alt Kısmı - Vurgu Çizgisi */}
+                    <div className="h-1.5 w-full bg-gradient-to-r from-emerald-500 to-green-600 transform scale-x-0 group-hover:scale-x-100 transition-transform origin-center duration-500 mt-auto"></div>
                   </div>
                   
-                  {/* Özellik Kartı 3 */}
-                  <div className="bg-white/80 dark:bg-[#2a3544]/90 backdrop-blur-sm rounded-2xl p-6 shadow-lg dark:shadow-black/10 border border-gray-100 dark:border-[#384352]/50 hover:shadow-xl transition-all duration-300 hover:translate-y-[-8px] hover:border-purple-200 dark:hover:border-purple-500/30 group animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-fuchsia-600 flex items-center justify-center mb-6 shadow-md dark:shadow-purple-600/20 group-hover:scale-110 transition-all duration-500">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                      </svg>
+                  {/* Özellik Kartı 3: İstatistikler */}
+                  <div className="relative group overflow-hidden bg-white/90 dark:bg-[#1e293b]/90 backdrop-blur-sm rounded-2xl shadow-lg dark:shadow-slate-900/10 border border-slate-200/60 dark:border-slate-700/50 hover:shadow-xl dark:hover:shadow-slate-900/20 transition-all duration-300 hover:translate-y-[-8px] animate-fade-in-up p-0 flex flex-col" style={{ animationDelay: '0.3s' }}>
+                    {/* Kart Başlık Alanı ve İkon - Ortalandı */}
+                    <div className="p-6 pb-3 flex flex-col items-center text-center">
+                      <div className="relative">
+                        <div className="absolute -top-2 -left-1/2 w-24 h-24 rounded-full bg-purple-500/10 dark:bg-purple-500/5 blur-2xl transform group-hover:scale-150 group-hover:opacity-100 transition-all duration-700"></div>
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center mb-5 shadow-md shadow-purple-500/20 dark:shadow-purple-500/10 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 relative mx-auto">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                          </svg>
+                        </div>
+                        
+                        <div className="relative">
+                          <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors text-center">İstatistikler</h3>
+                          <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-0 h-0.5 bg-purple-500 dark:bg-purple-400 group-hover:w-20 transition-all duration-300 mx-auto"></span>
+                        </div>
+                      </div>
                     </div>
-                    <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-3 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">İstatistikler</h3>
-                    <p className="text-gray-600 dark:text-gray-300">
-                      Görev tamamlama performansınızı ve iş dağılımını görsel grafiklerle analiz edin.
-                    </p>
-                    <ul className="mt-4 space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                      <li className="flex items-center">
-                        <svg className="h-4 w-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                        </svg>
-                        Detaylı tamamlanma istatistikleri
-                      </li>
-                      <li className="flex items-center">
-                        <svg className="h-4 w-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                        </svg>
-                        Kategori bazlı iş dağılım analizi
-                      </li>
-                    </ul>
+
+                    {/* Kart İçeriği - Ortalandı */}
+                    <div className="p-6 pt-2 flex-grow flex flex-col items-center text-center">
+                      <p className="text-gray-600 dark:text-gray-300 text-[15px] mb-4">
+                        Görev tamamlama performansınızı ve iş dağılımını görsel grafiklerle analiz edin.
+                      </p>
+                      <ul className="mt-2 space-y-3 text-sm w-full">
+                        <li className="flex items-center text-gray-600 dark:text-gray-400 justify-center">
+                          <div className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-500 dark:text-purple-400 mr-3">
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                          </div>
+                          <span>Detaylı tamamlanma istatistikleri</span>
+                        </li>
+                        <li className="flex items-center text-gray-600 dark:text-gray-400 justify-center">
+                          <div className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-500 dark:text-purple-400 mr-3">
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                          </div>
+                          <span>Kategori bazlı iş dağılım analizi</span>
+                        </li>
+                      </ul>
+                    </div>
+                    
+                    {/* Kart Alt Kısmı - Vurgu Çizgisi */}
+                    <div className="h-1.5 w-full bg-gradient-to-r from-purple-500 to-violet-600 transform scale-x-0 group-hover:scale-x-100 transition-transform origin-center duration-500 mt-auto"></div>
                   </div>
                   
-                  {/* Özellik Kartı 4 */}
-                  <div className="bg-white/80 dark:bg-[#2a3544]/90 backdrop-blur-sm rounded-2xl p-6 shadow-lg dark:shadow-black/10 border border-gray-100 dark:border-[#384352]/50 hover:shadow-xl transition-all duration-300 hover:translate-y-[-8px] hover:border-amber-200 dark:hover:border-amber-500/30 group animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center mb-6 shadow-md dark:shadow-amber-600/20 group-hover:scale-110 transition-all duration-500">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
+                  {/* Özellik Kartı 4: Hatırlatmalar */}
+                  <div className="relative group overflow-hidden bg-white/90 dark:bg-[#1e293b]/90 backdrop-blur-sm rounded-2xl shadow-lg dark:shadow-slate-900/10 border border-slate-200/60 dark:border-slate-700/50 hover:shadow-xl dark:hover:shadow-slate-900/20 transition-all duration-300 hover:translate-y-[-8px] animate-fade-in-up p-0 flex flex-col" style={{ animationDelay: '0.4s' }}>
+                    {/* Kart Başlık Alanı ve İkon - Ortalandı */}
+                    <div className="p-6 pb-3 flex flex-col items-center text-center">
+                      <div className="relative">
+                        <div className="absolute -top-2 -left-1/2 w-24 h-24 rounded-full bg-amber-500/10 dark:bg-amber-500/5 blur-2xl transform group-hover:scale-150 group-hover:opacity-100 transition-all duration-700"></div>
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center mb-5 shadow-md shadow-amber-500/20 dark:shadow-amber-500/10 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 relative mx-auto">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                          </svg>
+                        </div>
+                        
+                        <div className="relative">
+                          <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors text-center">Hatırlatmalar</h3>
+                          <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-0 h-0.5 bg-amber-500 dark:bg-amber-400 group-hover:w-20 transition-all duration-300 mx-auto"></span>
+                        </div>
+                      </div>
                     </div>
-                    <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-3 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">Hatırlatmalar</h3>
-                    <p className="text-gray-600 dark:text-gray-300">
-                      Görevleriniz için son tarih belirleyin ve zamanında tamamlandığından emin olun.
-                    </p>
-                    <ul className="mt-4 space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                      <li className="flex items-center">
-                        <svg className="h-4 w-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                        </svg>
-                        Son tarih yaklaşan görevleri görüntüleme
-                      </li>
-                      <li className="flex items-center">
-                        <svg className="h-4 w-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                        </svg>
-                        Akıllı tarih ve zaman seçicisi
-                      </li>
-                    </ul>
+
+                    {/* Kart İçeriği - Ortalandı */}
+                    <div className="p-6 pt-2 flex-grow flex flex-col items-center text-center">
+                      <p className="text-gray-600 dark:text-gray-300 text-[15px] mb-4">
+                        Görevleriniz için son tarih belirleyin ve zamanında tamamlandığından emin olun.
+                      </p>
+                      <ul className="mt-2 space-y-3 text-sm w-full">
+                        <li className="flex items-center text-gray-600 dark:text-gray-400 justify-center">
+                          <div className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-500 dark:text-amber-400 mr-3">
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                          </div>
+                          <span>Son tarih yaklaşan görevleri görüntüleme</span>
+                        </li>
+                        <li className="flex items-center text-gray-600 dark:text-gray-400 justify-center">
+                          <div className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-500 dark:text-amber-400 mr-3">
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                          </div>
+                          <span>Akıllı tarih ve zaman seçicisi</span>
+                        </li>
+                      </ul>
+                    </div>
+                    
+                    {/* Kart Alt Kısmı - Vurgu Çizgisi */}
+                    <div className="h-1.5 w-full bg-gradient-to-r from-amber-500 to-orange-600 transform scale-x-0 group-hover:scale-x-100 transition-transform origin-center duration-500 mt-auto"></div>
                   </div>
                 </div>
 
                 {/* Giriş/Kayıt Butonları */}
                 <div className="text-center relative animate-fade-in-up" style={{ animationDelay: '0.5s' }}>
-                  <div className="relative z-10 inline-flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 bg-white/80 dark:bg-[#2a3544]/90 backdrop-blur-sm p-6 rounded-2xl shadow-xl border border-gray-100 dark:border-[#384352]/50">
+                  <div className="relative z-10 inline-flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 bg-white/80 dark:bg-[#2a3544]/90 backdrop-blur-sm p-6 sm:p-8 rounded-2xl shadow-xl border border-gray-100 dark:border-[#384352]/50">
                     <div className="text-center sm:text-left mb-4 sm:mb-0 sm:mr-4">
-                      <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">Hemen Başlayın</h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-300">Hesabınıza giriş yapın veya yeni bir hesap oluşturun</p>
+                      <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Hemen Başlayın</h3>
+                      <p className="text-base text-gray-600 dark:text-gray-300">Hesabınıza giriş yapın veya yeni bir hesap oluşturun</p>
                     </div>
                     
-                    <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
+                    <div className="flex flex-col sm:flex-row gap-4">
                       <button
                         onClick={() => {
                           setIsInitialLogin(true);
@@ -1563,11 +1976,43 @@ function App() {
                   <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-gradient-to-r from-blue-400/20 to-indigo-400/20 dark:from-blue-600/10 dark:to-indigo-600/10 blur-2xl -z-10"></div>
                   <div className="absolute -bottom-4 -right-10 w-32 h-32 rounded-full bg-gradient-to-r from-purple-400/20 to-pink-400/20 dark:from-purple-600/10 dark:to-pink-600/10 blur-2xl -z-10"></div>
                 </div>
+                
+                {/* Ek dekoratif elementler */}
+                <div className="absolute -top-20 right-0 w-72 h-72 bg-gradient-to-bl from-indigo-200/30 to-blue-200/30 dark:from-indigo-900/10 dark:to-blue-900/10 rounded-full blur-3xl -z-10 animate-pulse-slow" style={{ animationDelay: '1s' }}></div>
+                <div className="absolute bottom-10 left-0 w-64 h-64 bg-gradient-to-tr from-purple-200/30 to-pink-200/30 dark:from-purple-900/10 dark:to-pink-900/10 rounded-full blur-3xl -z-10 animate-pulse-slow" style={{ animationDelay: '0s' }}></div>
               </div>
             </div>
           )}
         </main>
       </div>
+      
+      {/* Abonelik Geçmişi Sayfası - Modal tarzında gösteriliyor */}
+      {showSubscriptionHistory && (
+        <div 
+          className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center z-[9999] overflow-auto p-4"
+          onClick={(e) => {
+            // Modal dışına tıklandığında modalı kapat
+            if (e.target === e.currentTarget) {
+              toggleSubscriptionHistory();
+            }
+          }}
+        >
+          <div className="max-w-5xl w-full my-8">
+            <SubscriptionHistoryPage
+              user={authState.user}
+              onClose={toggleSubscriptionHistory}
+            />
+          </div>
+        </div>
+      )}
+      
+      {/* Abonelik Bildirimleri */}
+      {authState.isAuthenticated && !showSubscriptionPage && (
+        <SubscriptionNotifications 
+          user={authState.user} 
+          onRenew={() => setShowSubscriptionPage(true)} 
+        />
+      )}
     </TodoProvider>
   )
 }

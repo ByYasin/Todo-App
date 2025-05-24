@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import UserProfile from './UserProfile'
 import AuthModal from './Auth/AuthModal'
 import { User, SubscriptionPlan } from '../types'
+import { getSubscriptionStatusInfo } from '../utils/subscription'
 
 interface HeaderProps {
   darkMode: boolean
@@ -16,6 +17,7 @@ interface HeaderProps {
   onLogin: () => void
   onLogout: () => void
   onToggleSubscription: () => void
+  onShowSubscriptionHistory?: () => void
   subscriptionPlan: SubscriptionPlan
 }
 
@@ -32,6 +34,7 @@ const Header = ({
   onLogin,
   onLogout,
   onToggleSubscription,
+  onShowSubscriptionHistory,
   subscriptionPlan
 }: HeaderProps) => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
@@ -81,6 +84,9 @@ const Header = ({
       window.location.href = '/';
     }
   }
+
+  // Abonelik durumu bilgisi
+  const subscriptionStatus = getSubscriptionStatusInfo(user);
 
   return (
     <header className="sticky top-0 z-40 w-full transition-all duration-300 bg-white/90 dark:bg-[#15202b] backdrop-blur-md mb-4 shadow-sm border-b border-gray-200 dark:border-[#2d3741]">
@@ -143,7 +149,12 @@ const Header = ({
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                 </svg>
-                {subscriptionPlan.charAt(0).toUpperCase() + subscriptionPlan.slice(1)}
+                <span className="mr-1">{subscriptionPlan.charAt(0).toUpperCase() + subscriptionPlan.slice(1)}</span>
+                {subscriptionPlan !== 'free' && (
+                  <span className={`text-xs ml-1 ${subscriptionStatus.colorClass}`}>
+                    {subscriptionStatus.statusText}
+                  </span>
+                )}
               </button>
             )}
             
@@ -203,9 +214,16 @@ const Header = ({
                       <p className="text-lg font-medium text-gray-900 dark:text-gray-100">{user?.username}</p>
                       <p className="text-sm text-gray-500 dark:text-gray-400">{user?.email}</p>
                       <div className="mt-2 flex items-center">
+                        <div className="flex flex-col">
                         <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/20">
                           {subscriptionPlan.charAt(0).toUpperCase() + subscriptionPlan.slice(1)} Plan
                         </span>
+                          {subscriptionPlan !== 'free' && (
+                            <span className={`text-xs mt-1 ${subscriptionStatus.colorClass}`}>
+                              {subscriptionStatus.statusText}
+                            </span>
+                          )}
+                        </div>
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
@@ -239,6 +257,18 @@ const Header = ({
                         </svg>
                         Kategorileri Yönet
                       </button>
+                      
+                      {onShowSubscriptionHistory && (
+                        <button
+                          onClick={onShowSubscriptionHistory}
+                          className="w-full flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#2d3741]"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-3 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          Ödeme Geçmişi
+                        </button>
+                      )}
                     </div>
                     
                     <div className="py-1 border-t border-gray-200 dark:border-[#2d3741]">
@@ -303,37 +333,23 @@ const Header = ({
       
       {/* Mobil Menü */}
       {mobileMenuOpen && (
-        <div className="sm:hidden bg-white dark:bg-[#15202b] border-t border-gray-200 dark:border-[#2d3741] animate-fade-in-up">
-          <div className="px-2 pt-2 pb-3 space-y-1">
-            {/* Kullanıcı Profili Mobile */}
+        <div className="sm:hidden bg-white dark:bg-[#15202b] pt-2 pb-3 border-b border-gray-200 dark:border-[#2d3741]">
+          <div className="space-y-1 px-4">
             {isAuthenticated && (
-              <div className="px-4 py-3 border-b border-gray-200 dark:border-[#2d3741]">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 text-lg font-semibold">
-                      {user?.username?.charAt(0).toUpperCase() || 'U'}
-                    </span>
-                  </div>
-                  <div className="ml-3">
-                    <p className="text-base font-medium text-gray-800 dark:text-gray-100">{user?.username}</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{user?.email}</p>
-                  </div>
-                </div>
-                <div className="mt-3 flex items-center">
-                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/20">
-                    {subscriptionPlan.charAt(0).toUpperCase() + subscriptionPlan.slice(1)} Plan
+              <button
+                onClick={() => { onToggleSubscription(); setMobileMenuOpen(false); }}
+                className="flex w-full items-center px-3 py-2 text-base font-medium text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-md transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                </svg>
+                <span className="mr-1">{subscriptionPlan.charAt(0).toUpperCase() + subscriptionPlan.slice(1)}</span>
+                {subscriptionPlan !== 'free' && (
+                  <span className={`text-xs ml-2 ${subscriptionStatus.colorClass}`}>
+                    {subscriptionStatus.statusText}
                   </span>
-                  <button 
-                    onClick={() => {
-                      setMobileMenuOpen(false);
-                      onToggleSubscription();
-                    }}
-                    className="ml-auto text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
-                  >
-                    Yükselt
+                )}
                   </button>
-                </div>
-              </div>
             )}
             
             {/* API Status Mobile */}
@@ -353,6 +369,19 @@ const Header = ({
               </span>
             </div>
             
+            {/* Abonelik Geçmişi Butonu Mobile */}
+            {isAuthenticated && onShowSubscriptionHistory && (
+              <button
+                onClick={() => { onShowSubscriptionHistory(); setMobileMenuOpen(false); }}
+                className="flex items-center w-full px-3 py-2 text-base font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#2d3741] hover:text-gray-900 dark:hover:text-white rounded-md"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Ödeme Geçmişi
+              </button>
+            )}
+            
             {/* İstatistik Butonu Mobile */}
             {isAuthenticated && (
               <button
@@ -369,7 +398,7 @@ const Header = ({
               </button>
             )}
             
-            {/* Kategorileri Yönet Mobile */}
+            {/* Kategoriler Butonu Mobile */}
             {isAuthenticated && (
               <button
                 onClick={() => {
@@ -382,22 +411,6 @@ const Header = ({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                 </svg>
                 Kategorileri Yönet
-              </button>
-            )}
-            
-            {/* Abonelik Mobile */}
-            {isAuthenticated && (
-              <button
-                onClick={() => {
-                  onToggleSubscription();
-                  setMobileMenuOpen(false);
-                }}
-                className="flex items-center w-full px-3 py-2 text-base font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/10 hover:text-purple-800 dark:hover:text-purple-300 rounded-md"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                </svg>
-                Abonelik Planları
               </button>
             )}
             

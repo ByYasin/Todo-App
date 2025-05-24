@@ -138,7 +138,7 @@ export default {
         'slide-in-down': 'slideInDown 0.3s ease-out',
         'zoom-in': 'zoomIn 0.3s ease-out forwards',
         'zoom-out': 'zoomOut 0.3s ease-in forwards',
-        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'pulse-slow': 'pulse 8s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         'bounce-slow': 'bounce 2s infinite',
         'expand': 'expand 0.3s ease-out forwards',
         'float': 'float 3s ease-in-out infinite',
@@ -148,6 +148,7 @@ export default {
         'scale': 'scale 0.5s ease-in-out infinite alternate',
         'pop': 'pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
         'wiggle': 'wiggle 1s ease-in-out infinite',
+        'fade-scale-in': 'fadeScaleIn 0.4s ease-out forwards',
       },
       keyframes: {
         fadeIn: {
@@ -225,6 +226,14 @@ export default {
           '0%, 100%': { transform: 'rotate(-3deg)' },
           '50%': { transform: 'rotate(3deg)' },
         },
+        fadeScaleIn: {
+          '0%': { opacity: 0, transform: 'scale(0.9)' },
+          '100%': { opacity: 1, transform: 'scale(1)' },
+        },
+        pulse: {
+          '0%, 100%': { opacity: 1 },
+          '50%': { opacity: 0.7 },
+        },
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
@@ -271,6 +280,17 @@ export default {
         'snappy': 'cubic-bezier(0.5, 0, 0.1, 1)',
         'ease-out-back': 'cubic-bezier(0.34, 1.56, 0.64, 1)',
         'elastic': 'cubic-bezier(0.68, -0.55, 0.265, 1.55)',
+      },
+      utilities: {
+        '.animation-delay-1000': {
+          'animation-delay': '1000ms',
+        },
+        '.animation-delay-2000': {
+          'animation-delay': '2000ms',
+        },
+        '.animation-delay-3000': {
+          'animation-delay': '3000ms',
+        },
       },
     },
   },

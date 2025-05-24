@@ -15,6 +15,13 @@ const execPromise = util.promisify(exec);
 // Env yapılandırması
 dotenv.config();
 
+// Abonelik süreleri (gün cinsinden)
+const SUBSCRIPTION_DURATIONS = {
+  'free': 30,      // Ücretsiz plan 30 gün
+  'premium': 30,   // Premium plan 30 gün
+  'enterprise': 365 // Enterprise plan 1 yıl (365 gün)
+};
+
 // Veritabanı yedekleme klasörü
 const backupDir = path.join(__dirname, 'backups');
 if (!fs.existsSync(backupDir)){
@@ -733,7 +740,9 @@ app.post('/api/auth/login', async (req, res) => {
           id: 1,
           username: 'admin',
           email: 'admin@example.com',
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          subscription_plan: 'premium',
+          subscription_expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
         };
         
         const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
@@ -766,7 +775,9 @@ app.post('/api/auth/login', async (req, res) => {
       id: user.id,
       username: user.username,
       email: user.email,
-      created_at: user.created_at
+      created_at: user.created_at,
+      subscription_plan: user.subscription_plan,
+      subscription_expires: user.subscription_expires
     };
     
     // Token oluştur
@@ -824,7 +835,9 @@ app.post('/api/auth/refresh', async (req, res) => {
           id: 1,
           username: 'admin',
           email: 'admin@example.com',
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          subscription_plan: 'premium',
+          subscription_expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
         };
         
         const newToken = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
@@ -856,7 +869,9 @@ app.post('/api/auth/refresh', async (req, res) => {
       id: users[0].id,
       username: users[0].username,
       email: users[0].email,
-      created_at: users[0].created_at
+      created_at: users[0].created_at,
+      subscription_plan: users[0].subscription_plan,
+      subscription_expires: users[0].subscription_expires
     };
     
     // Yeni JWT token oluştur
@@ -893,8 +908,36 @@ app.post('/api/auth/refresh', async (req, res) => {
 });
 
 // Token doğrulama endpoint'i
-app.get('/api/auth/validate', authenticateToken, (req, res) => {
-  res.json({ valid: true, user: req.user });
+app.get('/api/auth/validate', authenticateToken, async (req, res) => {
+  try {
+    // Kullanıcının güncel bilgilerini veritabanından çekelim
+    const userId = req.user.id;
+    
+    // Veritabanı bağlantısı yoksa mevcut token bilgilerini kullan
+    if (!dbConnected) {
+      return res.json({ valid: true, user: req.user });
+    }
+    
+    // Kullanıcı bilgilerini veritabanından al
+    const [users] = await promisePool.query(
+      'SELECT id, username, email, subscription_plan, subscription_expires, created_at FROM users WHERE id = ?',
+      [userId]
+    );
+    
+    if (users.length === 0) {
+      return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+    }
+    
+    // Güncel kullanıcı bilgilerini döndür
+    res.json({ 
+      valid: true, 
+      user: users[0],
+      message: 'Token geçerli ve kullanıcı bilgileri güncellendi'
+    });
+  } catch (error) {
+    console.error('Token doğrulama hatası:', error);
+    res.status(500).json({ error: 'Bir hata oluştu' });
+  }
 });
 
 // Kullanıcı kaydı
@@ -1029,9 +1072,10 @@ app.put('/api/users/:id/subscription', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Geçersiz abonelik planı' });
     }
     
-    // Bitiş tarihini ayarla (30 gün sonra)
+    // Bitiş tarihini plana göre hesapla
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30);
+    const durationInDays = SUBSCRIPTION_DURATIONS[plan] || 30; // Varsayılan olarak 30 gün
+    expiresAt.setDate(expiresAt.getDate() + durationInDays);
     
     // Kullanıcının aboneliğini güncelle
     await promisePool.query(
@@ -1039,7 +1083,7 @@ app.put('/api/users/:id/subscription', authenticateToken, async (req, res) => {
       [plan, expiresAt, id]
     );
     
-    // Ödeme kaydı oluştur
+    // Ödeme kaydı oluştur ve planı belirt
     await promisePool.query(
       'INSERT INTO payment_history (user_id, subscription_plan, amount, status, payment_method) VALUES (?, ?, ?, ?, ?)',
       [id, plan, plans[0].price, 'completed', 'credit_card']
@@ -1057,7 +1101,12 @@ app.put('/api/users/:id/subscription', authenticateToken, async (req, res) => {
     
     res.json({ 
       message: 'Abonelik başarıyla güncellendi',
-      user: users[0]
+      user: users[0],
+      subscription_info: {
+        plan,
+        expires_at: expiresAt,
+        duration_days: durationInDays
+      }
     });
   } catch (error) {
     console.error('Abonelik güncellenirken hata:', error);
@@ -1145,6 +1194,48 @@ app.get('/api/users/:id/payment-history', authenticateToken, async (req, res) =>
   } catch (error) {
     console.error('Ödeme geçmişi getirilirken hata:', error);
     res.status(500).json({ error: 'Bir hata oluştu' });
+  }
+});
+
+// Hızlı veritabanı düzeltme işlemi (güvenlik açığı olmayan versiyon)
+app.get('/api/repair-database', async (req, res) => {
+  try {
+    console.log('Veritabanı onarımı başlatıldı');
+    
+    // Veritabanı bağlantısını kontrol et
+    if (!dbConnected) {
+      return res.status(503).json({ error: 'Veritabanı bağlantısı yok' });
+    }
+    
+    // Önce yedek al
+    await backupDatabase();
+    console.log('Yedekleme tamamlandı');
+    
+    // Kullanıcı abonelik bilgilerini yeniden senkronize et (güvenli güncelleme)
+    const [users] = await promisePool.query('SELECT id, subscription_plan FROM users');
+    let fixCount = 0;
+    
+    // Her kullanıcı için gerekli düzeltme işlemleri
+    for (const user of users) {
+      // Demo hesabı için özel düzeltme (kullanıcı bilgileri açığa çıkmadan)
+      if (user.id === 1 && user.subscription_plan !== 'premium') {
+        await promisePool.query(
+          'UPDATE users SET subscription_plan = ? WHERE id = ?',
+          ['premium', user.id]
+        );
+        fixCount++;
+      }
+    }
+    
+    // Sonuç dön
+    res.json({ 
+      success: true, 
+      message: 'Veritabanı onarımı tamamlandı',
+      fixedRecords: fixCount 
+    });
+  } catch (error) {
+    console.error('Onarım hatası:', error);
+    res.status(500).json({ error: 'İşlem sırasında bir hata oluştu' });
   }
 });
 

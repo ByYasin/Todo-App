@@ -1,18 +1,66 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import SubscriptionPlans from '../components/Subscription/SubscriptionPlans';
 import { SubscriptionPlan, User } from '../types';
-import { SUBSCRIPTION_PLANS, getUserPlan } from '../utils/subscription';
+import { SUBSCRIPTION_PLANS, getUserPlan, hasExpiredPremiumPlan, getExpiredPremiumMessage } from '../utils/subscription';
+import axios from 'axios';
 
 interface SubscriptionPageProps {
   user: User | null;
   onSubscriptionChange: (plan: SubscriptionPlan) => void;
 }
 
+// API URL'ini ortam değişkeninden al veya varsayılanı kullan
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
 const SubscriptionPage: React.FC<SubscriptionPageProps> = ({ user, onSubscriptionChange }) => {
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [refreshedUser, setRefreshedUser] = useState<User | null>(user);
+  const [apiConnected, setApiConnected] = useState(true); // API bağlantı durumu
+  
+  // Sayfa açıldığında güncel kullanıcı bilgilerini sunucudan al
+  useEffect(() => {
+    const fetchCurrentUserData = async () => {
+      if (!user) return;
+      
+      try {
+        // JWT token'ı localStorage'dan al
+        const token = localStorage.getItem('auth_token');
+        if (!token) return;
+        
+        // Sunucudan en güncel kullanıcı bilgilerini al
+        const response = await axios.get(`${API_URL}/auth/validate`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        if (response.data && response.data.user) {
+          console.log('Güncel kullanıcı verileri alındı:', response.data.user);
+          
+          // Güncel kullanıcı bilgilerini state'e kaydet
+          setRefreshedUser(response.data.user);
+          
+          // Ayrıca localStorage'daki kullanıcı bilgilerini güncelle
+          localStorage.setItem('user', JSON.stringify(response.data.user));
+          
+          // Abonelik sayfasını güncel verilerle otomatik olarak güncelle
+          if (response.data.user.subscription_plan !== user.subscription_plan) {
+            console.log('Abonelik planı değişikliği tespit edildi:', 
+              user.subscription_plan, ' -> ', response.data.user.subscription_plan);
+
+            // Ana sayfadaki state'i de güncellememiz gerekiyor
+            // Bu sebeple onSubscriptionChange'i çağırıyoruz
+            onSubscriptionChange(response.data.user.subscription_plan as SubscriptionPlan);
+          }
+        }
+      } catch (error) {
+        console.error('Kullanıcı bilgileri güncellenirken hata:', error);
+      }
+    };
+    
+    fetchCurrentUserData();
+  }, [user, onSubscriptionChange]);
   
   // Ödeme bilgileri
   const [paymentData, setPaymentData] = useState({
@@ -21,6 +69,35 @@ const SubscriptionPage: React.FC<SubscriptionPageProps> = ({ user, onSubscriptio
     expiryDate: '',
     cvv: '',
   });
+  
+  // Abonelik sona erme bilgisini hesapla
+  const subscriptionInfo = useMemo(() => {
+    if (!user?.subscription_expires) return null;
+    
+    // Free plan için özel kontrol - free planın son kullanma tarihini kontrol etme
+    if (user.subscription_plan === 'free') {
+      return {
+        expiryDate: new Date(),
+        remainingDays: 0,
+        isExpired: false,
+        isFree: true
+      };
+    }
+    
+    const expiryDate = new Date(user.subscription_expires);
+    const today = new Date();
+    
+    // Kalan gün sayısı
+    const diffTime = expiryDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    return {
+      expiryDate,
+      remainingDays: diffDays,
+      isExpired: diffDays <= 0,
+      isFree: false
+    };
+  }, [user?.subscription_expires, user?.subscription_plan]);
   
   // Form alanlarını güncelle
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -38,8 +115,13 @@ const SubscriptionPage: React.FC<SubscriptionPageProps> = ({ user, onSubscriptio
     if (plan === 'free') {
       handleCompleteSubscription(plan);
     } else {
-      // Kullanıcının zaten bu plana sahip olup olmadığını kontrol et
-      if (user && user.subscription_plan === plan) {
+      // Kullanıcının aktif plan kontrolü
+      // Süresi dolmuş planları yenilemek için özel durum kontrolü
+      const currentActivePlan = getUserPlan(refreshedUser);
+      const isRenewingExpiredPlan = hasExpiredPremiumPlan(refreshedUser) && refreshedUser?.subscription_plan === plan;
+      
+      // Eğer kullanıcı süresi dolmuş planı yenilemiyorsa ve zaten bu plana sahipse hata göster
+      if (currentActivePlan === plan && !isRenewingExpiredPlan) {
         setPaymentError(`Zaten ${SUBSCRIPTION_PLANS[plan].name} planını kullanıyorsunuz.`);
         return;
       }
@@ -55,10 +137,84 @@ const SubscriptionPage: React.FC<SubscriptionPageProps> = ({ user, onSubscriptio
       // Normalde burada ödeme işlemini gerçekleştirir ve sonucu bekleriz
       await new Promise(resolve => setTimeout(resolve, 1500));
       
+      if (!user) {
+        setPaymentError('Kullanıcı bilgisi bulunamadı.');
+        setIsProcessing(false);
+        return;
+      }
+      
+      // API'ye abonelik güncelleme isteği gönder
+      if (apiConnected) {
+        try {
+          // JWT token'ı localStorage'dan al
+          const token = localStorage.getItem('auth_token');
+          if (!token) {
+            setPaymentError('Oturum bilgisi bulunamadı.');
+            setIsProcessing(false);
+            return;
+          }
+          
+          // Veritabanında abonelik planını güncelle
+          const response = await axios.put(
+            `${API_URL}/users/${user.id}/subscription`, 
+            { plan },
+            { headers: { Authorization: `Bearer ${token}` }}
+          );
+          
+          // Sunucudan güncel kullanıcı bilgilerini al
+          if (response.data && response.data.user) {
+            console.log('Abonelik güncellendi:', response.data);
+            
+            // Güncel kullanıcı bilgilerini state'e kaydet
+            setRefreshedUser(response.data.user);
+            
+            // LocalStorage'ı güncelle
+            localStorage.setItem('user', JSON.stringify(response.data.user));
+            
+            // Ana sayfadaki state'i güncelle
+            onSubscriptionChange(plan);
+            
+            setPaymentSuccess(true);
+            setSelectedPlan(plan);
+            setIsProcessing(false);
+            return;
+          }
+        } catch (error) {
+          console.error('API ile abonelik güncellenirken hata:', error);
+          setPaymentError('Abonelik güncelleme sırasında bir hata oluştu. Lütfen tekrar deneyin.');
+          setIsProcessing(false);
+          return;
+        }
+      } else {
+        // API bağlantısı yoksa yerel olarak güncelle
+        // Abonelik sona erme tarihini güncelle
+        const today = new Date();
+        // Plan süresini al (gün cinsinden)
+        const planDuration = SUBSCRIPTION_PLANS[plan].duration || 30;
+        
+        // Yeni sona erme tarihini hesapla
+        const newExpiryDate = new Date(today);
+        newExpiryDate.setDate(today.getDate() + planDuration);
+        
+        // Kullanıcı bilgilerini güncelle
+        const updatedUser = {
+          ...user,
+          subscription_plan: plan,
+          subscription_expires: newExpiryDate.toISOString()
+        };
+        
+        // LocalStorage'ı güncelle
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        
+        // State'i güncelle
+        setRefreshedUser(updatedUser);
+      
       // Başarılı ödeme
       onSubscriptionChange(plan);
       setPaymentSuccess(true);
       setSelectedPlan(plan);
+      }
+      
       setIsProcessing(false);
     } catch (error) {
       console.error('Abonelik işlemi sırasında hata:', error);
@@ -320,29 +476,135 @@ const SubscriptionPage: React.FC<SubscriptionPageProps> = ({ user, onSubscriptio
           </p>
         </div>
         
-        {/* Mevcut abonelik bilgisi */}
-        {user && (
-          <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-xl p-6 flex items-center justify-between mb-8">
+        {/* Mevcut abonelik bilgisi - refreshedUser kullanılıyor */}
+        {refreshedUser && (
+          <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-xl p-6 mb-8">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
               <h2 className="text-lg font-medium text-blue-800 dark:text-blue-300">Mevcut Aboneliğiniz</h2>
               <div className="flex items-center mt-2">
                 <span className="text-blue-600 dark:text-blue-400 font-bold text-xl">
-                  {SUBSCRIPTION_PLANS[getUserPlan(user)].name} Plan
+                    {SUBSCRIPTION_PLANS[getUserPlan(refreshedUser)].name} Plan
                 </span>
                 <span className="ml-3 bg-blue-100 dark:bg-blue-800/40 px-3 py-1 rounded-full text-sm text-blue-700 dark:text-blue-300 font-medium">
-                  {SUBSCRIPTION_PLANS[getUserPlan(user)].price.toFixed(2)} ₺/ay
+                    {SUBSCRIPTION_PLANS[getUserPlan(refreshedUser)].price.toFixed(2)} ₺/ay
                 </span>
+                  
+                  {/* Yenile butonu */}
+                  <button
+                    onClick={() => {
+                      // Sayfayı yenile ve localStorage'dan taze bilgileri al
+                      window.location.reload();
+                    }}
+                    className="ml-3 bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-full flex items-center justify-center transition-all duration-300" 
+                    title="Abonelik bilgilerini yenile"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </button>
+                </div>
               </div>
+              
+              {subscriptionInfo && (
+                <div className="bg-white dark:bg-[#1c2732] shadow-sm rounded-lg p-4 border border-blue-100 dark:border-blue-800/60">
+                  <div className="flex flex-col">
+                    <div className="flex items-center mb-3">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        {subscriptionInfo.isFree ? (
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        ) : (
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        )}
+                      </svg>
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        {subscriptionInfo.isFree ? 'Plan Durumu' : 'Yenileme Tarihi'}
+                      </span>
             </div>
-            {user.subscription_expires && (
-              <div className="bg-white dark:bg-[#1c2732] shadow-sm rounded-lg p-3 border border-blue-100 dark:border-blue-800/60">
-                <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Yenileme tarihi</div>
-                <div className="text-blue-600 dark:text-blue-400 font-medium">
-                  {new Date(user.subscription_expires).toLocaleDateString('tr-TR', {
+                    
+                    <div className="text-blue-600 dark:text-blue-400 font-medium mb-2">
+                      {subscriptionInfo.isFree ? (
+                        'Süresiz Kullanım'
+                      ) : (
+                        subscriptionInfo.expiryDate.toLocaleDateString('tr-TR', {
                     day: 'numeric',
                     month: 'long',
                     year: 'numeric'
-                  })}
+                        })
+                      )}
+                    </div>
+                    
+                    <div className={`text-sm font-medium ${
+                      subscriptionInfo.isFree ? 'text-blue-500 dark:text-blue-400' :
+                      subscriptionInfo.isExpired ? 'text-red-500 dark:text-red-400' : 
+                      subscriptionInfo.remainingDays <= 5 ? 'text-orange-500 dark:text-orange-400' : 
+                      'text-green-600 dark:text-green-400'
+                    }`}>
+                      {subscriptionInfo.isFree
+                        ? 'Ücretsiz Plan Aktif'
+                        : subscriptionInfo.isExpired 
+                          ? 'Aboneliğiniz sona erdi!' 
+                          : `${subscriptionInfo.remainingDays} gün kaldı`
+                      }
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Süresi dolmuş premium planlar için özel bildirim */}
+            {hasExpiredPremiumPlan(refreshedUser) && (
+              <div className="mt-4 px-4 py-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2 flex-shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <p>
+                    <span className="font-medium block mb-1">Önceden {refreshedUser.subscription_plan === 'premium' ? 'Premium' : 'Kurumsal'} plan kullanıcısıydınız</span>
+                    <span className="text-sm">{getExpiredPremiumMessage(refreshedUser)}</span>
+                  </p>
+                </div>
+                <button 
+                  onClick={() => handlePlanSelect(refreshedUser.subscription_plan as SubscriptionPlan)}
+                  className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-lg shadow-sm hover:shadow-md transition-all duration-200 text-sm font-medium"
+                >
+                  <span className="flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Planı Yenile
+                  </span>
+                </button>
+              </div>
+            )}
+            
+            {/* Abonelik durumu bilgisi */}
+            {subscriptionInfo && !hasExpiredPremiumPlan(refreshedUser) && (
+              <div className={`mt-4 px-4 py-3 rounded-lg text-sm ${
+                subscriptionInfo.isFree ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800' :
+                subscriptionInfo.isExpired ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800' :
+                subscriptionInfo.remainingDays <= 5 ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800' :
+                'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800'
+              }`}>
+                <div className="flex items-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    {subscriptionInfo.isFree ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    ) : subscriptionInfo.isExpired ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    ) : subscriptionInfo.remainingDays <= 5 ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    )}
+                  </svg>
+                  {subscriptionInfo.isFree 
+                    ? 'Ücretsiz plan aktif durumda.'
+                    : subscriptionInfo.isExpired 
+                      ? 'Ücretli aboneliğiniz sona ermiş. Lütfen planınızı yenileyiniz.' 
+                      : subscriptionInfo.remainingDays <= 5 
+                        ? `Aboneliğinizin bitmesine ${subscriptionInfo.remainingDays} gün kaldı.` 
+                        : 'Aboneliğiniz aktif durumda.'}
                 </div>
               </div>
             )}
@@ -350,12 +612,12 @@ const SubscriptionPage: React.FC<SubscriptionPageProps> = ({ user, onSubscriptio
         )}
         
         {/* Mevcut plan özellikleri */}
-        {user && !selectedPlan && !paymentSuccess && renderCurrentPlanFeatures()}
+        {refreshedUser && !selectedPlan && !paymentSuccess && renderCurrentPlanFeatures()}
         
         {/* Abonelik planları */}
         {!selectedPlan && !paymentSuccess && (
           <SubscriptionPlans 
-            user={user} 
+            user={refreshedUser} 
             onSelectPlan={handlePlanSelect} 
           />
         )}
@@ -375,6 +637,18 @@ const SubscriptionPage: React.FC<SubscriptionPageProps> = ({ user, onSubscriptio
             
             {/* Plan karşılaştırma göstergesi */}
             {renderPlanComparison()}
+            
+            {/* Süresi dolmuş plan yenileme mesajı */}
+            {hasExpiredPremiumPlan(refreshedUser) && refreshedUser?.subscription_plan === selectedPlan && (
+              <div className="bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 p-3 rounded-lg mb-4 text-sm border border-amber-200 dark:border-amber-800">
+                <div className="flex items-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Süresi dolmuş <strong>{SUBSCRIPTION_PLANS[selectedPlan].name}</strong> planınızı yeniliyorsunuz. Ödeme sonrası tüm premium özellikler tekrar aktif olacaktır.</span>
+                </div>
+              </div>
+            )}
             
             {paymentError && (
               <div className="bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 p-3 rounded-lg mb-4 text-sm border border-red-200 dark:border-red-800">
@@ -567,6 +841,9 @@ const SubscriptionPage: React.FC<SubscriptionPageProps> = ({ user, onSubscriptio
                 setSelectedPlan(null);
                 setPaymentSuccess(false);
                 
+                // Sayfayı yenile ve güncel verileri al
+                window.location.reload();
+                
                 // Sonra abonelik değişikliğini uygula (ana sayfaya dönüş otomatik olacak)
                 setTimeout(() => {
                   if (selectedPlan) {
@@ -575,7 +852,7 @@ const SubscriptionPage: React.FC<SubscriptionPageProps> = ({ user, onSubscriptio
                     // Eğer plan seçilmemişse (hata durumu) manuel olarak ana sayfaya dön
                     // Buradaki kodu App.tsx'deki toggleSubscriptionPage'e benzer yapacağız
                     // onSubscriptionChange kullanıcıyı ana sayfaya yönlendirecek
-                    onSubscriptionChange(user?.subscription_plan || 'free');
+                    onSubscriptionChange(refreshedUser?.subscription_plan || 'free');
                   }
                 }, 100);
               }}

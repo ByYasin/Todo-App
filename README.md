@@ -15,9 +15,9 @@ Geliştirici: [Yasin Kınalı](https://www.linkedin.com/in/yasin-k%C4%B1nal%C4%B
 - ✅ Alt görevler oluşturma ve yönetme
 - ✅ Görevleri başlık, açıklama veya tarihe göre sıralama
 - ✅ Detaylı arama ve filtreleme seçenekleri
-- ✅ **YENİ!** Sürükle-bırak ile durum değişikliklerinin hem veritabanına hem de yerel depolamaya kaydedilmesi
-- ✅ **YENİ!** Sürükleme sırasında geliştirilmiş görsel ipuçları ve animasyonlar
-- ✅ **YENİ!** Emoji desteği ile görevlere emoji ekleyebilme (Premium özellik)
+- ✅ Sürükle-bırak ile durum değişikliklerinin hem veritabanına hem de yerel depolamaya kaydedilmesi
+- ✅ Sürükleme sırasında geliştirilmiş görsel ipuçları ve animasyonlar
+- ✅ Emoji desteği ile görevlere emoji ekleyebilme (Premium özellik)
 
 ### Kategori Yönetimi
 - ✅ Kişisel kategoriler oluşturma ve özelleştirme
@@ -32,23 +32,23 @@ Geliştirici: [Yasin Kınalı](https://www.linkedin.com/in/yasin-k%C4%B1nal%C4%B
 - ✅ Görev durumlarını görsel olarak takip etme
 - ✅ Kullanıcı doğrulama ve yetkilendirme sistemi
 - ✅ Gerçek zamanlı istatistikler ve görev dağılımları
-- ✅ **YENİ!** Göz yorgunluğunu azaltan daha açık dark tema renkleri
-- ✅ **YENİ!** Durum değişiklikleri için kullanıcı bildirim sistemi
-- ✅ **YENİ!** Boş durum mesajlarının daha açıklayıcı ve kullanıcı dostu tasarımı
-- ✅ **YENİ!** Gelişmiş karşılama sayfası ve mobil uyumlu giriş ekranı
+- ✅ Göz yorgunluğunu azaltan daha açık dark tema renkleri
+- ✅ Durum değişiklikleri için kullanıcı bildirim sistemi
+- ✅ Boş durum mesajlarının daha açıklayıcı ve kullanıcı dostu tasarımı
+- ✅ Gelişmiş karşılama sayfası ve mobil uyumlu giriş ekranı
 
 ### Veri Yönetimi
 - ✅ MySQL veritabanı ile veri saklama
 - ✅ Kullanıcıya özel veri erişimi
 - ✅ Offline çalışma modu (API bağlantısı olmadığında)
 - ✅ Otomatik veri yedekleme
-- ✅ **YENİ!** Geliştirilmiş çevrimdışı modu: Internet bağlantısı yokken değişiklikleri LocalStorage'da saklama
-- ✅ **YENİ!** Otomatik veri senkronizasyonu: Bağlantı sağlandığında veritabanı ile otomatik senkronize etme
-- ✅ **YENİ!** Bekleyen değişikliklerin arayüzde sayaç ile gösterimi
-- ✅ **YENİ!** API hatası durumunda veri kaybını önleyen akıllı kurtarma mekanizmaları
-- ✅ **YENİ!** Otomatik yerel yedekleme ve geri yükleme sistemi
+- ✅ Geliştirilmiş çevrimdışı modu: Internet bağlantısı yokken değişiklikleri LocalStorage'da saklama
+- ✅ Otomatik veri senkronizasyonu: Bağlantı sağlandığında veritabanı ile otomatik senkronize etme
+- ✅ Bekleyen değişikliklerin arayüzde sayaç ile gösterimi
+- ✅ API hatası durumunda veri kaybını önleyen akıllı kurtarma mekanizmaları
+- ✅ Otomatik yerel yedekleme ve geri yükleme sistemi
 
-### **YENİ!** Abonelik Sistemi
+### Abonelik Sistemi
 - ✅ Üç farklı abonelik planı: Ücretsiz (Kayıt olunca varsayılan olarak aktiftir.), Premium (125 TL/ay) ve Enterprise (325 TL/ay)
 - ✅ Premium özelliklere erişim kontrolü (Emoji desteği, Markdown formatı)
 - ✅ Kullanıcı bazlı özellik limitleri (görev sayısı, kategori sayısı)
@@ -57,6 +57,8 @@ Geliştirici: [Yasin Kınalı](https://www.linkedin.com/in/yasin-k%C4%B1nal%C4%B
 - ✅ Modern ve etkileşimli plan kartları
 - ✅ Premium/enterprise özellikler için açıklayıcı upgrade modalları
 - ✅ Abone durumunun veritabanı ve yerel depolamada senkronizasyonu
+- ✅ **YENİ!** Gelişmiş abonelik geçmişi görüntüleme sistemi
+- ✅ **YENİ!** Abonelik geçmişinde arama ve filtreleme özellikleri (tümü, aktif, geçmiş)
 
 ## Teknolojiler
 
@@ -139,8 +141,8 @@ Uygulama aşağıdaki veritabanı tablolarını kullanır:
 
 1. **users** - Kullanıcı bilgileri
    - id, username, email, password, created_at
-   - **YENİ!** subscription_plan - Kullanıcının abonelik planı (free, premium, enterprise)
-   - **YENİ!** subscription_expires - Abonelik bitiş tarihi
+   - subscription_plan - Kullanıcının abonelik planı (free, premium, enterprise)
+   - subscription_expires - Abonelik bitiş tarihi
 
 2. **categories** - Görev kategorileri
    - id, name, color, user_id, is_public, created_at
@@ -167,6 +169,10 @@ Uygulama aşağıdaki veritabanı tablolarını kullanır:
    - id, data, timestamp, version
    - Otomatik yerel yedekleme ve geri yükleme işlevleri için kullanılır
 
+9. **YENİ! payment_history** - Abonelik ödeme geçmişi tablosu
+   - id, user_id, subscription_plan, amount, payment_date, status, payment_method
+   - Kullanıcı ödeme geçmişini takip etmek için kullanılır
+
 ## Premium Özellikler
 
 Uygulamanın premium abonelik planına sahip kullanıcılar için sunduğu özel özellikler:
@@ -180,6 +186,7 @@ Uygulamanın premium abonelik planına sahip kullanıcılar için sunduğu özel
    - Enterprise: Sınırsız görev ve kategori
 5. **Çevrimdışı senkronizasyon önceliği** - İnternet bağlantısı sağlandığında premium kullanıcıların verileri öncelikli olarak senkronize edilir
 6. **Gelişmiş veri yedekleme** - Otomatik yedekleme ve geri yükleme özellikleri
+7. **YENİ! Detaylı abonelik geçmişi** - Geçmiş ödemeleri ve abonelik yenilemelerini görüntüleme ve arama
 
 ## Sorun Giderme
 
@@ -198,6 +205,15 @@ Kategori eklerken sorun yaşıyorsanız:
 1. Kullanıcı kimliğinin (user_id) doğru şekilde gönderildiğinden emin olun
 2. Giriş yapmış olduğunuzdan ve token'ın geçerli olduğundan emin olun
 3. Sunucu konsolunda hata mesajlarını kontrol edin
+
+## Son Değişiklikler
+
+### YENİ! Abonelik Geçmişi Sayfası (24.05.2025)
+- ✅ Tamamen yeni bir kart tabanlı abonelik geçmişi görünümü
+- ✅ Geçmiş ödemeleri filtreleme ve arama özellikleri
+- ✅ Aktif ve geçmiş abonelikleri ayrı sekmelerde görüntüleme
+- ✅ Tüm ekran boyutlarında uyumlu responsive tasarım
+- ✅ Gelişmiş görsel ipuçları ve plan bazlı renkli ikonlar
 
 ## Katkıda Bulunma
 

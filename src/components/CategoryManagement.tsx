@@ -6,6 +6,7 @@ interface CategoryManagementProps {
   categories: Category[];
   onCategoriesUpdate: (categories: Category[]) => void;
   isAuthenticated?: boolean;
+  onClose?: () => void;
 }
 
 // API URL'i sabit olarak tanımlayalım
@@ -14,7 +15,8 @@ const API_URL = 'http://localhost:5000/api';
 const CategoryManagement: React.FC<CategoryManagementProps> = ({ 
   categories, 
   onCategoriesUpdate, 
-  isAuthenticated = false 
+  isAuthenticated = false,
+  onClose
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -86,6 +88,11 @@ const CategoryManagement: React.FC<CategoryManagementProps> = ({
     setIsModalOpen(false);
     setEditingCategory(null);
     setError(null);
+    
+    // onClose prop'u varsa çağırılıyor
+    if (onClose) {
+      onClose();
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

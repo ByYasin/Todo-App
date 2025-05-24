@@ -13,6 +13,7 @@ type StatusType = 'pending' | 'in-progress' | 'completed';
 
 
 const StrictModeDroppable = ({ children, ...props }: StrictModeDroppable) => {
+  // React 18+ uyumluluğu için
   
   const [enabled, setEnabled] = useState(false);
   
@@ -28,7 +29,7 @@ const StrictModeDroppable = ({ children, ...props }: StrictModeDroppable) => {
     return null;
   }
   
-  return <Droppable {...props}>{children}</Droppable>;
+  return <Droppable {...props} isCombineEnabled={false}>{children}</Droppable>;
 };
 
 interface DraggableTodoListProps {
@@ -146,7 +147,7 @@ const DraggableTodoList: React.FC<DraggableTodoListProps> = ({
           </button>
         </div>
       ) : (
-        <DragDropContext onDragEnd={onDragEnd}>
+        <DragDropContext onDragEnd={onDragEnd} isCombineEnabled={false}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {Object.entries(todosByStatus).map(([status, statusTodos]) => (
               <div
@@ -165,7 +166,7 @@ const DraggableTodoList: React.FC<DraggableTodoListProps> = ({
                 </div>
 
                 
-                <StrictModeDroppable droppableId={status} isDropDisabled={false}>
+                <StrictModeDroppable droppableId={status} isDropDisabled={false} ignoreContainerClipping={false}>
                   {(provided, snapshot) => (
                     <div
                       ref={provided.innerRef}
